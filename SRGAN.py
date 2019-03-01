@@ -1,14 +1,12 @@
 # the SSGANN model 
 # based on the tutorial: https://medium.com/@birla.deepak26/single-image-super-resolution-using-gans-keras-aca310f33112
+# change paths for you're data base
 import random as rd
 from PIL import Image
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import os
 import numpy as np
-
-# get my dataset folder path
-DATASET_PATH = os.environ["DATASETS"]
 
 # import the data for creating the NN
 from tensorflow.keras.layers import Activation, BatchNormalization, Input, Flatten, Dense
@@ -18,50 +16,84 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 
+# import for a custom loss function
+from tensorflow.keras.applications.vgg19 import VGG19
+import tensorflow.keras.backend as K
+
+# Global Vars
+#############
+
+# get my dataset folder path
+DATASET_PATH = os.environ["DATASETS"]
+
+# images sizes
+HR_IMAGE_SIZE = 128, 128 # size for resize after open
+DOWNGRADE_FACTOR = 4 # the downgrade factor between the LR and HR image (HR size must be a multiple of DOWNGRADE_FACTor)
+LR_IMAGE_SIZE = HR_IMAGE_SIZE // DOWNGRADE_FACTOR, HR_IMAGE_SIZE // DOWNGRADE_FACTOR # CALCULATE THE LR SIZE
+
+# Neuralnet inputs shape
+GENE_INPUT_SHAPE = None, None, 3 # the input shape of the generator (NONE = the size don't matter and the 3 = number of channels)
+DISC_INPUT_SHAPE = HR_IMAGE_SIZE[0], HR_IMAGE_SIZE[1], 3 # the input shape of the discriminator
+
+
+# Functions
+###########
 
 # generate the x_train data
 def get_one_image():
+    # get a random image path
     path = DATASET_PATH + "/place_images/"
     path += rd.choice(os.listdir(path)) + "/"
     path += rd.choice(os.listdir(path))
 
+    # extract the image and resize
     img = Image.open(path)
-    img = img.resize((128,128))
+    imgy = img.resize(HR_IMAGE_SIZE)
+    imgx = img.resize(LR_IMAGE_SIZE)
+
+    # create the arrays and map the value form 0-255 to 0-1
+    x = np.array(img)
+    x = x.astype('float32') / 255
+
     y = np.array(img)
     y = y.astype('float32') / 255
-    size = y.shape
 
-    if len(y.shape) != 3 or y.shape[2] != 3 or y.shape[1] > 2000 or y.shape[0] > 2000:
+    # check the image format and size must be: (X, Y, 3)
+    if len(y.shape) != 3 or y.shape[2] != 3:
         return get_one_image()
 
-    new_image = np.zeros((size[0]//4, size[1]//4, size[2]))    
+    # return a batch with only one image
+    return np.array([x,]), np.array([y,])
 
-    # creat the low quality images
-    for i in range(new_image.shape[0]):
-        for j in range(new_image.shape[1]):
-            new_image[i][j] = y[i*4][j*4]
-
-    y_size = new_image.shape
-    y = y[0:y_size[0]*4]
-    new_y = []
+# a custom loss
+def vgg_loss(y_true, y_pred):
     
-    for row in y:
-        new_y.append(row[0:y_size[1]*4])
+    vgg19 = VGG19(include_top=False, weights='imagenet', input_shape=(128, 128,3))
+    vgg19.trainable = False
+    # Make trainable as False
+    for l in vgg19.layers:
+        l.trainable = False
+    model = Model(inputs=vgg19.input, outputs=vgg19.get_layer('block5_conv4').output)
+    model.trainable = False
+    
+    return K.mean(K.square(model(y_true) - model(y_pred)))
 
-    return np.array([new_image,]), np.array([new_y,])
 
-print("training data loaded and generate")
+# Creat the models graphs
+######################### 
 
-# genarator
+# the generator
 
-# the input and generator layer
-input_layer = Input(shape=(None, None, 3))
+# the input layer (who extract the data from image)
+# one convulution form 3 chanels to 64 chanels
+input_layer = Input(shape=GENE_INPUT_SHAPE)
 generator = Conv2D(filters = 64, kernel_size = 9, strides = 1, padding = "same")(input_layer)
 generator = LeakyReLU(alpha=.1)(generator)
 
 gene_model = generator
 
-# the resudial blocks
+# the resudial blocks (who treaat the data from image to extract the most usefull)
+# tow convolution + add the input image to the generated image
 for i in range(16):
     model = generator
 
@@ -76,30 +108,39 @@ for i in range(16):
     generator = add([model, generator])
 
 # the end of the residual blocks
+# one convolution + add the image befor residuals blocks
 generator = Conv2D(filters = 64, kernel_size = 3, strides = 1, padding = "same")(generator)
 generator = BatchNormalization(momentum = 0.5)(generator)
 generator = add([gene_model, generator])
 
-# the upsampling blocks
+# the upsampling blocks (who upscale the image by 2)
+# one convolution + upscalling
 for i in range(2):
     generator = Conv2D(filters = 256, kernel_size = 3, strides = 1, padding = "same")(generator)
     generator = UpSampling2D(size = 2)(generator)
     generator = LeakyReLU(alpha = 0.2)(generator)
 
-# the final layer
+# the final layer (who creat the new image)
+# one convolution from 64 chanels to 3 chanels
 generator = Conv2D(filters = 3, kernel_size = 9, strides = 1, padding = "same")(generator)
 generator = Activation('sigmoid')(generator)
-    
+
+# end of the graph creation
 generator = Model(inputs = input_layer, outputs = generator)
-generator.summary()
+
 
 # the discriminator
-dis_input = Input(shape = (128, 128, 3))
-        
+
+# the discriminator input
+# extract featurs from the image
+# convolution form a chanels to 64 chanels
+dis_input = Input(shape = DISC_INPUT_SHAPE)
+
 discriminator = Conv2D(filters = 64, kernel_size = 3, strides = 1, padding = "same")(dis_input)
 discriminator = LeakyReLU(alpha = 0.2)(discriminator)
 
-# the discrominator blocks
+# the discrominator blocks data
+# chanels, kernel size, strides (jump of the convolution)
 size = [[64,3,2],
         [128,3,1],
         [128,3,2],
@@ -108,38 +149,25 @@ size = [[64,3,2],
         [512,3,1],
         [512,3,2]]
 
-# add the blocks layer
+# add the blocks layer to the graph
+# one convolution, one batch normalization, one activation layer
 for data in size:
     discriminator = Conv2D(filters = data[0], kernel_size = data[1], strides = data[2], padding = "same")(discriminator)
     discriminator = BatchNormalization(momentum = 0.5)(discriminator)
     discriminator = LeakyReLU(alpha = 0.2)(discriminator)
 
-# the dense layer and final layer
+# the dense layers (1024 nodes) (1 nodes)
+# say if the image is a FAKE or a TRUE image
 discriminator = Flatten()(discriminator)
 discriminator = Dense(1024)(discriminator)
 discriminator = LeakyReLU(alpha = 0.2)(discriminator)
        
 discriminator = Dense(1)(discriminator)
 discriminator = Activation('sigmoid')(discriminator) 
-        
+
+# end of the graph creation
 discriminator = Model(inputs = dis_input, outputs = discriminator)
 
-# a custom loss for gann
-from tensorflow.keras.applications.vgg19 import VGG19
-import tensorflow.keras.backend as K
-
-
-def vgg_loss(y_true, y_pred):
-    
-    vgg19 = VGG19(include_top=False, weights='imagenet', input_shape=(128, 128,3))
-    vgg19.trainable = False
-    # Make trainable as False
-    for l in vgg19.layers:
-        l.trainable = False
-    model = Model(inputs=vgg19.input, outputs=vgg19.get_layer('block5_conv4').output)
-    model.trainable = False
-    
-    return K.mean(K.square(model(y_true) - model(y_pred)))
 
 optimizer=Adam(lr=2E-4, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 
