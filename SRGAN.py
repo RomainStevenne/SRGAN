@@ -1,14 +1,20 @@
 # the SSGANN model 
 # based on the tutorial: https://medium.com/@birla.deepak26/single-image-super-resolution-using-gans-keras-aca310f33112
 # change paths for you're data base
-import random as rd
-from PIL import Image
+
+# for animation during the training session
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-import os
-import numpy as np
 
-# import the data for creating the NN
+# for data extraction
+import numpy as np
+from PIL import Image
+import os
+
+# for batch creation
+import random as rd
+
+# for creating the NN
 from tensorflow.keras.layers import Activation, BatchNormalization, Input, Flatten, Dense
 from tensorflow.keras.layers import UpSampling2D, Conv2D, add
 from tensorflow.keras.layers import LeakyReLU
@@ -16,7 +22,7 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.models import load_model
 from tensorflow.keras.optimizers import Adam
 
-# import for a custom loss function
+# for a custom loss function
 from tensorflow.keras.applications.vgg19 import VGG19
 import tensorflow.keras.backend as K
 
@@ -24,7 +30,7 @@ import tensorflow.keras.backend as K
 #############
 
 # get my dataset folder path
-DATASET_PATH = os.environ["DATASETS"]
+DATASET_PATH = os.environ["DATASETS"] + "/place_images/"
 
 # images sizes
 HR_IMAGE_SIZE = 128, 128 # size for resize after open
@@ -34,7 +40,15 @@ LR_IMAGE_SIZE = HR_IMAGE_SIZE // DOWNGRADE_FACTOR, HR_IMAGE_SIZE // DOWNGRADE_FA
 # Neuralnet inputs shape
 GENE_INPUT_SHAPE = None, None, 3 # the input shape of the generator (NONE = the size don't matter and the 3 = number of channels)
 DISC_INPUT_SHAPE = HR_IMAGE_SIZE[0], HR_IMAGE_SIZE[1], 3 # the input shape of the discriminator
+GAN_INPUT_SHAPE = LR_IMAGE_SIZE[0], LR_IMAGE_SIZE[1], 3 # the input shape of the gan
 
+# the save path for trained models
+SAVE_PATH = "E:/users/romain/Dekstop/pgm/Python/machine learning/keras/models/SRGAN/" 
+
+# SAVE AND LOAD INFO
+LOAD = False
+SAVE = True
+SAVR_RATE = 10 # save every how many epochs
 
 # Functions
 ###########
@@ -42,7 +56,7 @@ DISC_INPUT_SHAPE = HR_IMAGE_SIZE[0], HR_IMAGE_SIZE[1], 3 # the input shape of th
 # generate the x_train data
 def get_one_image():
     # get a random image path
-    path = DATASET_PATH + "/place_images/"
+    path = DATASET_PATH
     path += rd.choice(os.listdir(path)) + "/"
     path += rd.choice(os.listdir(path))
 
@@ -52,10 +66,10 @@ def get_one_image():
     imgx = img.resize(LR_IMAGE_SIZE)
 
     # create the arrays and map the value form 0-255 to 0-1
-    x = np.array(img)
+    x = np.array(imgx)
     x = x.astype('float32') / 255
 
-    y = np.array(img)
+    y = np.array(imgy)
     y = y.astype('float32') / 255
 
     # check the image format and size must be: (X, Y, 3)
@@ -168,23 +182,39 @@ discriminator = Activation('sigmoid')(discriminator)
 # end of the graph creation
 discriminator = Model(inputs = dis_input, outputs = discriminator)
 
+# Compilation
+#############
 
+# generator
+# the optimizer 
 optimizer=Adam(lr=2E-4, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
 
-# compilation
-generator.load_weights("./" + 'gen_model.h5')
-generator.save("./" + 'gen.h5')
+# load & compilation
+if LOAD: 
+    generator.load_weights(SAVE_PATH + 'generator_model.h5')
+
+_gnerator = generator # save an uncompile version of the generator
 generator.compile(loss=vgg_loss, optimizer=optimizer)
+
+# discriminator (use the same opti then the generator)
+# load & compile
+if LOAD:
+    discriminator.loss_weights(SAVE_PATH + 'discriminator_model.h5')
+
 discriminator.compile(loss="binary_crossentropy", optimizer=optimizer, metrics=["accuracy"])
-discriminator.load_weights("./" + 'dis_model.h5')
 
 
+# gann
+# the optimizer
 optimizer=Adam(lr=1E-4, beta_1=0.9, beta_2=0.999, epsilon=1e-08)
-# the gann 
-gan_input = Input(shape=(32,32,3))
+
+# creat the graph based on generator and discriminator
+gan_input = Input(shape=GAN_INPUT_SHAPE)
 x = generator(gan_input)
 gan_output = discriminator(x)
 gan = Model(inputs=gan_input, outputs=[x,gan_output])
+
+# compile
 gan.compile(loss=[vgg_loss, "binary_crossentropy"], loss_weights=[1., 1e-3], optimizer=optimizer, metrics=["accuracy"])
 
 
