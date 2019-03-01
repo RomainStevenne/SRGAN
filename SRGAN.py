@@ -35,7 +35,7 @@ DATASET_PATH = os.environ["DATASETS"] + "/place_images/"
 # images sizes
 HR_IMAGE_SIZE = 128, 128 # size for resize after open
 DOWNGRADE_FACTOR = 4 # the downgrade factor between the LR and HR image (HR size must be a multiple of DOWNGRADE_FACTor)
-LR_IMAGE_SIZE = HR_IMAGE_SIZE // DOWNGRADE_FACTOR, HR_IMAGE_SIZE // DOWNGRADE_FACTOR # CALCULATE THE LR SIZE
+LR_IMAGE_SIZE = HR_IMAGE_SIZE[0] // DOWNGRADE_FACTOR, HR_IMAGE_SIZE[1] // DOWNGRADE_FACTOR # CALCULATE THE LR SIZE
 
 # Neuralnet inputs shape
 GENE_INPUT_SHAPE = None, None, 3 # the input shape of the generator (NONE = the size don't matter and the 3 = number of channels)
@@ -240,7 +240,6 @@ def animate(e):
         curr.clear()
 
         im = images[j, :, :, :]
-        #im = np.reshape(im, [self.img_rows, self.img_cols)
 
         curr.imshow(im)
         curr.axis('off')
@@ -250,7 +249,6 @@ def animate(e):
         curr.clear()
 
         im = X[j, :, :, :]
-        #im = np.reshape(im, [self.img_rows, self.img_cols)
 
         curr.imshow(im)
         curr.axis('off')
